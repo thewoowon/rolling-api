@@ -1,31 +1,30 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
-def _normalize_pg_url(url: str, *, async_driver: bool) -> str:
-    """Railway / Heroku-style env compatibility.
-
-    They expose `postgres://` and `postgresql://` URLs without a driver tag,
-    but SQLAlchemy needs an explicit driver:
-      - sync  → `postgresql+psycopg://...`
-      - async → `postgresql+asyncpg://...`
-    If the URL already specifies a driver (`postgresql+psycopg`, etc.), it's
-    returned unchanged.
-    """
+def _to_sync_url(url: str) -> str:
+    """Convert any postgres:// or postgresql:// URL to postgresql+psycopg://."""
     if not url:
         return url
     if "+" in url.split("://", 1)[0]:
-        return url  # caller-specified driver
-    if url.startswith("postgres://"):
-        scheme = "postgresql+asyncpg://" if async_driver else "postgresql+psycopg://"
-        return url.replace("postgres://", scheme, 1)
-    if url.startswith("postgresql://"):
-        scheme = "postgresql+asyncpg://" if async_driver else "postgresql+psycopg://"
-        return url.replace("postgresql://", scheme, 1)
-    return url
+        return url
+    return url.replace("postgres://", "postgresql+psycopg://", 1).replace(
+        "postgresql://", "postgresql+psycopg://", 1
+    )
+
+
+def _to_async_url(url: str) -> str:
+    """Convert any postgres:// or postgresql:// URL to postgresql+asyncpg://."""
+    if not url:
+        return url
+    # Strip any existing driver tag first so we can re-apply the async one.
+    base = url.split("://", 1)
+    scheme = base[0].split("+")[0]  # e.g. "postgresql"
+    rest = base[1] if len(base) > 1 else ""
+    return f"postgresql+asyncpg://{rest}"
 
 
 class Settings(BaseSettings):
@@ -44,7 +43,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(
         default="postgresql+psycopg://rolling:rolling@localhost:5432/rolling"
     )
-    # If unset, derived from DATABASE_URL with asyncpg driver.
     DATABASE_URL_ASYNC: str | None = None
 
     JWT_SECRET_KEY: str = "change-me"
@@ -65,27 +63,22 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_sync_url(cls, v: str) -> str:
+        return _to_sync_url(v)
+
+    @field_validator("DATABASE_URL_ASYNC", mode="before")
+    @classmethod
+    def normalize_async_url(cls, v: str | None) -> str | None:
+        return _to_async_url(v) if v else None
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def split_cors(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
-
-    @model_validator(mode="after")
-    def _normalize_urls(self) -> "Settings":
-        # 1) Always normalize the sync URL to the psycopg driver.
-        self.DATABASE_URL = _normalize_pg_url(self.DATABASE_URL, async_driver=False)
-        # 2) If async URL not provided, derive it from sync URL with asyncpg driver.
-        if not self.DATABASE_URL_ASYNC:
-            self.DATABASE_URL_ASYNC = _normalize_pg_url(
-                self.DATABASE_URL.replace("+psycopg", ""), async_driver=True
-            )
-        else:
-            self.DATABASE_URL_ASYNC = _normalize_pg_url(
-                self.DATABASE_URL_ASYNC, async_driver=True
-            )
-        return self
 
 
 @lru_cache
