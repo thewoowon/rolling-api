@@ -46,6 +46,7 @@ async def register(
             status=user.status,
             last_login_at=user.last_login_at,
             created_at=user.created_at,
+            referral_code=user.referral_code,
         )
     )
 
@@ -95,5 +96,6 @@ async def me(user: User = Depends(get_current_user)) -> APIResponse[MeResponse]:
             status=user.status,
             last_login_at=user.last_login_at,
             created_at=user.created_at,
+            referral_code=user.referral_code,
         )
     )

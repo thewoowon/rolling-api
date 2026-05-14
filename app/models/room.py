@@ -55,6 +55,10 @@ class Room(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     viable_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Host's freeform instructions for participants on how to pay (bank account,
+    # KakaoBank handle, etc.) — surfaced after approval. MVP-grade, replaced by
+    # PG integration later.
+    payment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     planner: Mapped["Planner | None"] = relationship("Planner", back_populates="rooms")
     applications: Mapped[list["RoomApplication"]] = relationship(

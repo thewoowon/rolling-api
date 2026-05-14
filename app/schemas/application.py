@@ -20,6 +20,8 @@ class RoomBriefForApplication(BaseModel):
     venue_name: str | None
     price_amount: int
     deposit_amount: int
+    # Only meaningful for approved+ applications. FE decides when to display.
+    payment_instructions: str | None = None
 
 
 class ApplicationCreate(BaseModel):

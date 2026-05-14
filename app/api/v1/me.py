@@ -11,8 +11,10 @@ from app.schemas.application import (
     RoomBriefForApplication,
 )
 from app.schemas.common import APIResponse
+from app.schemas.credit import CreditItem, CreditWallet
 from app.schemas.room import RoomListItem
-from app.services import application_service
+from app.services import application_service, credit_service
+from app.models._enums import CreditKind, CreditStatus
 
 router = APIRouter()
 
@@ -45,6 +47,31 @@ async def cancel_application(
     await db.commit()
     await db.refresh(app)
     return APIResponse(data=ApplicationResponse.model_validate(app))
+
+
+@router.get("/credits", response_model=APIResponse[CreditWallet])
+async def my_credits(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> APIResponse[CreditWallet]:
+    credits = await credit_service.list_my_credits(db, user.id)
+    await db.commit()  # persists lazy "expired" status flips
+    items = [CreditItem.model_validate(c) for c in credits]
+    active = [c for c in credits if c.status == CreditStatus.ACTIVE.value]
+    total_active_fixed = sum(
+        (c.amount_krw or 0) for c in active if c.kind == CreditKind.FIXED_AMOUNT.value
+    )
+    has_percent = any(c.kind == CreditKind.PERCENT.value for c in active)
+    return APIResponse(
+        data=CreditWallet(
+            active_count=len(active),
+            expired_count=sum(1 for c in credits if c.status == CreditStatus.EXPIRED.value),
+            used_count=sum(1 for c in credits if c.status == CreditStatus.USED.value),
+            total_active_fixed_krw=int(total_active_fixed),
+            has_percent_off=has_percent,
+            items=items,
+        )
+    )
 
 
 @router.get("/rooms", response_model=APIResponse[list[RoomListItem]])

@@ -124,3 +124,22 @@ class Gender(StrEnum):
     MALE = "male"
     FEMALE = "female"
     OTHER = "other"
+
+
+class CreditKind(StrEnum):
+    FIXED_AMOUNT = "fixed_amount"  # discrete amount in KRW
+    PERCENT = "percent"  # discount percentage with optional cap
+
+
+class CreditStatus(StrEnum):
+    ACTIVE = "active"
+    USED = "used"
+    EXPIRED = "expired"
+    VOIDED = "voided"
+
+
+class CreditSource(StrEnum):
+    VIABLE_HOST_BONUS = "viable_host_bonus"
+    REFERRAL_HOST = "referral_host"
+    REFERRAL_FRIEND = "referral_friend"
+    MANUAL_GRANT = "manual_grant"

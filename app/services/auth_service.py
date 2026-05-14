@@ -1,4 +1,6 @@
 import hashlib
+import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -6,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import Conflict, Unauthorized
+from app.core.exceptions import APIError, Conflict, Unauthorized
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -19,8 +21,22 @@ from app.models._enums import UserRole, UserStatus
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenPair
 
 
+REFERRAL_ALPHABET = string.ascii_uppercase + string.digits  # 36^6 ≈ 2.18B
+REFERRAL_CODE_LEN = 6
+
+
 def _hash_refresh(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def _generate_referral_code(db: AsyncSession) -> str:
+    """6-char alphanumeric, retried until unique. Collisions are astronomical."""
+    for _ in range(8):
+        code = "".join(secrets.choice(REFERRAL_ALPHABET) for _ in range(REFERRAL_CODE_LEN))
+        exists = await db.scalar(select(User.id).where(User.referral_code == code))
+        if exists is None:
+            return code
+    raise RuntimeError("Could not allocate unique referral code (extremely unlikely).")
 
 
 async def _issue_token_pair(
@@ -52,14 +68,27 @@ async def register(db: AsyncSession, body: RegisterRequest) -> User:
         raise Conflict("EMAIL_ALREADY_EXISTS", "An account with this email already exists.")
 
     if body.role == UserRole.ADMIN:
-        # Admin accounts are not creatable via public registration.
         raise Conflict("INVALID_ROLE", "Admin role cannot be created via registration.")
+
+    # Resolve referrer (optional). Invalid code → soft error: still register.
+    referred_by: User | None = None
+    if body.referral_code:
+        code = body.referral_code.upper().strip()
+        referred_by = await db.scalar(select(User).where(User.referral_code == code))
+        if referred_by is None:
+            raise APIError(
+                "INVALID_REFERRAL_CODE",
+                "추천 코드가 유효하지 않습니다.",
+                status_code=409,
+            )
 
     user = User(
         email=body.email,
         password_hash=hash_password(body.password),
         role=body.role.value,
         status=UserStatus.ACTIVE.value,
+        referral_code=await _generate_referral_code(db),
+        referred_by_user_id=referred_by.id if referred_by else None,
     )
     db.add(user)
     await db.flush()

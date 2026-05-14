@@ -30,6 +30,7 @@ from app.models._enums import (
 )
 from app.schemas.application import ApplicantBrief
 from app.schemas.room import RoomCapacitySummary, RoomCreate, RoomUpdate
+from app.services import credit_service
 
 
 HOST_EDITABLE_STATES = (
@@ -91,6 +92,7 @@ async def create_room(db: AsyncSession, user: User, body: RoomCreate) -> Room:
         currency=body.currency,
         application_deadline=body.application_deadline,
         visibility=body.visibility.value,
+        payment_instructions=body.payment_instructions,
     )
     db.add(room)
     await db.flush()
@@ -259,9 +261,26 @@ async def mark_application_paid(
         )
     app.status = ApplicationStatus.CONFIRMED.value
     await db.flush()
-    # Trigger viability check on the room.
+    # 1) Re-check whether this confirmation pushes the room into VIABLE.
     await maybe_promote_to_viable(db, app.room_id)
+    # 2) If this is the applicant's FIRST CONFIRMED room and they were referred,
+    #    award the referral pair (idempotent — emitter flag flips).
+    await _maybe_emit_referral_bonus(db, app.user_id)
     return app
+
+
+async def _maybe_emit_referral_bonus(db: AsyncSession, applicant_user_id: UUID) -> None:
+    """Award referrer + applicant the referral credit pair on FIRST confirmed app."""
+    applicant = await db.scalar(select(User).where(User.id == applicant_user_id))
+    if applicant is None or applicant.referred_by_user_id is None:
+        return
+    if applicant.referral_bonus_emitted:
+        return
+    await credit_service.issue_referral_pair(
+        db, referrer_id=applicant.referred_by_user_id, friend_id=applicant.id
+    )
+    applicant.referral_bonus_emitted = True
+    await db.flush()
 
 
 # ---- Capacity + viability ----------------------------------------------
@@ -337,6 +356,10 @@ async def maybe_promote_to_viable(db: AsyncSession, room_id: UUID) -> bool:
     room.status = RoomStatus.VIABLE.value
     room.viable_at = datetime.now(timezone.utc)
     await db.flush()
+    # Reward the host with a percentage-off coupon (idempotent).
+    await credit_service.issue_viable_host_bonus(
+        db, host_user_id=room.host_user_id, room_id=room.id
+    )
     return True
 
 

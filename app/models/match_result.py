@@ -1,6 +1,13 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +32,11 @@ class MatchResult(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    # When non-host participants may see this match. Host of the room always
+    # sees immediately; others see after this timestamp.
+    visible_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     after_proposals: Mapped[list["AfterDateProposal"]] = relationship(
         "AfterDateProposal", back_populates="match_result", cascade="all, delete-orphan"

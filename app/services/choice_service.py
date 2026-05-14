@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -199,17 +199,24 @@ async def submit_choices(
                     )
                 )
                 if match is None:
+                    # Host of this room sees the match immediately; other
+                    # participants see it 24h after creation. This gives the
+                    # host a first-mover window to propose an after-date.
+                    visible_at = datetime.now(timezone.utc) + timedelta(hours=24)
                     db.add(
                         MatchResult(
                             room_id=room_id,
                             user_a_id=ua,
                             user_b_id=ub,
                             status=MatchStatus.MUTUAL.value,
+                            visible_at=visible_at,
                         )
                     )
                     new_mutual += 1
                 elif match.status == MatchStatus.NONE.value:
                     match.status = MatchStatus.MUTUAL.value
+                    if match.visible_at is None:
+                        match.visible_at = datetime.now(timezone.utc) + timedelta(hours=24)
                     new_mutual += 1
         else:
             # If user changed away from interested, downgrade existing match (if any).
@@ -241,26 +248,29 @@ async def list_my_matches(
         raise NotFound("ROOM_NOT_FOUND", "Room not found.")
     await _ensure_attended(db, user, room)
 
-    matches = list(
-        (
-            await db.scalars(
-                select(MatchResult).where(
-                    MatchResult.room_id == room_id,
-                    or_(
-                        MatchResult.user_a_id == user.id,
-                        MatchResult.user_b_id == user.id,
-                    ),
-                    MatchResult.status.in_(
-                        (
-                            MatchStatus.MUTUAL.value,
-                            MatchStatus.AFTER_PROPOSED.value,
-                            MatchStatus.AFTER_CONFIRMED.value,
-                        )
-                    ),
-                )
+    # Host of the room sees all matches immediately; non-host participants
+    # see only those whose `visible_at` is in the past (24h embargo).
+    is_host = room.host_user_id == user.id
+    now = datetime.now(timezone.utc)
+    base_q = select(MatchResult).where(
+        MatchResult.room_id == room_id,
+        or_(
+            MatchResult.user_a_id == user.id,
+            MatchResult.user_b_id == user.id,
+        ),
+        MatchResult.status.in_(
+            (
+                MatchStatus.MUTUAL.value,
+                MatchStatus.AFTER_PROPOSED.value,
+                MatchStatus.AFTER_CONFIRMED.value,
             )
-        ).all()
+        ),
     )
+    if not is_host:
+        base_q = base_q.where(
+            or_(MatchResult.visible_at.is_(None), MatchResult.visible_at <= now)
+        )
+    matches = list((await db.scalars(base_q)).all())
     if not matches:
         return []
 

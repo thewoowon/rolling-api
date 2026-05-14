@@ -10,6 +10,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.PARTICIPANT
+    referral_code: str | None = Field(default=None, min_length=4, max_length=8)
 
 
 class LoginRequest(BaseModel):
@@ -35,3 +36,4 @@ class MeResponse(BaseModel):
     status: str
     last_login_at: datetime | None
     created_at: datetime
+    referral_code: str | None = None

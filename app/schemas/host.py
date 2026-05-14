@@ -32,6 +32,7 @@ class HostRoomItem(BaseModel):
     description: str | None
     viable_at: datetime | None
     planner_id: UUID | None
+    payment_instructions: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -1,6 +1,7 @@
 from app.models.after_date_proposal import AfterDateProposal
 from app.models.audit_log import AuditLog
 from app.models.checkin import CheckIn
+from app.models.credit import Credit
 from app.models.feedback import Feedback
 from app.models.match_result import MatchResult
 from app.models.participant_choice import ParticipantChoice
@@ -20,6 +21,7 @@ __all__ = [
     "AfterDateProposal",
     "AuditLog",
     "CheckIn",
+    "Credit",
     "Feedback",
     "MatchResult",
     "ParticipantChoice",

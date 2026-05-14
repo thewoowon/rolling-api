@@ -82,6 +82,7 @@ class RoomCreate(BaseModel):
     currency: str = Field(default="KRW", min_length=3, max_length=10)
     application_deadline: datetime | None = None
     visibility: RoomVisibility = RoomVisibility.PUBLIC
+    payment_instructions: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def _check(self) -> "RoomCreate":
@@ -111,3 +112,4 @@ class RoomUpdate(BaseModel):
     deposit_amount: int | None = Field(default=None, ge=0)
     application_deadline: datetime | None = None
     visibility: RoomVisibility | None = None
+    payment_instructions: str | None = Field(default=None, max_length=2000)

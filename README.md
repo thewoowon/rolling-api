@@ -460,6 +460,78 @@ docker compose exec api pytest app/tests/integration -q
 
 ---
 
+## Railway 배포
+
+### 0. 사전 준비
+
+- Railway 계정 + 결제수단 (Postgres + API 서비스에 월 ~$10)
+- GitHub 레포 푸시되어 있을 것
+- FE 도메인 미리 결정 (CORS 설정에 필요). 모르면 일단 `*` 후 좁히기.
+
+### 1. Postgres 서비스 띄우기
+
+Railway 콘솔 → `+ New` → **Database → Postgres**. 30초 내 프로비저닝. 같은 프로젝트의 다른 서비스에 자동으로 환경변수가 노출돼요 (`DATABASE_URL`, `PGHOST`, 등).
+
+### 2. API 서비스 띄우기
+
+같은 프로젝트에서 `+ New` → **GitHub Repo** → `rolling-api` 레포 선택.
+
+Railway는 레포 안의 `railway.json` + `Dockerfile`을 보고 자동 빌드합니다. start command도 `railway.json`에 정의되어 있어 alembic 마이그레이션이 매 배포마다 자동 실행돼요.
+
+### 3. 환경변수 설정
+
+API 서비스의 **Variables** 탭에서:
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+
+# Postgres 참조 — Railway 변수 참조 문법
+DATABASE_URL=${{ Postgres.DATABASE_URL }}
+# DATABASE_URL_ASYNC는 자동 derive됨 (app/core/config.py)
+
+JWT_SECRET_KEY=<openssl rand -hex 32 결과를 붙여넣으세요>
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=14
+
+# 쉼표 구분, Railway가 발급한 FE 도메인을 포함
+CORS_ORIGINS=https://rolling.vercel.app,https://your-fe-domain.com
+
+PAYMENT_PROVIDER=mock
+SMS_PROVIDER=mock
+```
+
+> `DATABASE_URL`이 `postgres://`로 시작해도 `app/core/config.py`가 자동으로
+> `postgresql+psycopg://` (sync) / `postgresql+asyncpg://` (async)로 변환합니다.
+
+### 4. 도메인 노출
+
+API 서비스 → **Settings** → **Networking** → **Generate Domain**. `*.up.railway.app` 도메인 받음. FE의 `NEXT_PUBLIC_API_BASE_URL`을 이 도메인 + `/api/v1`로 세팅.
+
+### 5. 첫 배포 후 시드
+
+```bash
+railway run --service rolling-api poetry run python -m app.scripts.seed
+```
+
+또는 Railway 콘솔의 Shell에서 같은 명령. 시드는 idempotent라 여러 번 실행해도 안전.
+
+### 6. 헬스체크
+
+```bash
+curl https://<your-api>.up.railway.app/api/v1/health
+```
+
+`{"data": {"status": "ok", "db": true}}` 확인. `X-Request-Id` 헤더가 응답에 있어야 합니다.
+
+### ⚠️ 운영 단계 주의
+
+- **레이트 리미터는 in-memory**. Railway 기본 1 replica 가정. 2개 이상 띄우면 카운트 분산 → 효과 약화. Redis 백엔드로 교체 전엔 단일 replica 유지.
+- **마이그레이션 실패 시 부팅 안 됨**. 배포 전에 로컬에서 `alembic upgrade head`가 깨끗히 도는지 확인.
+- **Postgres 백업**. Hobby 플랜은 자동 백업 없음. Pro 이상 또는 cron으로 `pg_dump` 별도 설정 권장.
+
+---
+
 ## 자주 만나는 상황
 
 **`Could not find next/package.json`** — 이건 FE 에러. 여기 무관.

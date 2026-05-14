@@ -21,6 +21,10 @@ RUN if [ ! -f poetry.lock ]; then poetry lock --no-update || poetry lock; fi \
 
 COPY . .
 
+# Railway / Heroku-style PaaS provide $PORT; default to 8000 locally.
+ENV PORT=8000
 EXPOSE 8000
 
-CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start command: run pending migrations, then boot Uvicorn.
+# Use `sh -c` so $PORT is expanded at runtime, not at image build.
+CMD sh -c "poetry run alembic upgrade head && poetry run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
