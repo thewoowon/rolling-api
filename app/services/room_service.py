@@ -159,7 +159,7 @@ def to_list_item(room: Room) -> RoomListItem:
             "male_capacity": room.male_capacity,
             "female_capacity": room.female_capacity,
             "application_deadline": room.application_deadline,
-            "planner": PlannerBrief.model_validate(room.planner),
+            "planner": PlannerBrief.model_validate(room.planner) if room.planner else None,
         }
     )
 

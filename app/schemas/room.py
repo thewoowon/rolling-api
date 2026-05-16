@@ -45,7 +45,7 @@ class RoomListItem(BaseModel):
     male_capacity: int
     female_capacity: int
     application_deadline: datetime | None
-    planner: PlannerBrief
+    planner: PlannerBrief | None = None
 
 
 class RoomDetail(RoomListItem):
